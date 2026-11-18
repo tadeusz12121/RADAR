@@ -7,7 +7,7 @@ let i = 0;
 let aircrafts = []
 function readplanes() {
     
-    fs.readFile('history_3.json', function(err, data) { 
+    fs.readFile('/run/dump1090/aircraft.json', function(err, data) { 
 
     if (err) throw err; 
     i = i + 1;
