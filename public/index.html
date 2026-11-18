@@ -10,7 +10,7 @@
 </head>
 <body>
 	<style>
-		.plane-div-icon {
+.plane-div-icon {
     background: transparent;
     border: none;
 }
@@ -18,73 +18,114 @@
 .plane-marker {
     width: 36px;
     height: 36px;
-    filter: drop-shadow(0 0 4px rgba(245, 208, 84, 0.8));
+    filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.65));
+    transform-origin: center;
 }
 	</style>
 	<div id="map" style="height: 800px"></div>
 	<script type="module">
-	   import { LeafletMap, TileLayer, Marker, DivIcon } from 'leaflet';
+	   import * as L from 'leaflet';
 		// the map code goes here
 
-        const map = new LeafletMap('map').setView([50.28778, 21.43167], 13);
+       const map = L.map('map').setView([50.28778, 21.43167], 13);
 		const markers = new Map();
 		
-        new TileLayer(
-    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    {
-        maxZoom: 19,
-        attribution: 'Tiles &copy; Esri'
-    }
-
+       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: 'abcd',
+    maxZoom: 20
+}).addTo(map);
     
-).addTo(map);
 
-const marker = new Marker([50.28778, 21.43167]).addTo(map);
+
 
 function createPlaneIcon(track) {
-    const heading = Number.isFinite(track) ? track : 0;
-
-    return new DivIcon({
+    return L.divIcon({
         className: 'plane-div-icon',
         html: `
-            <div class="plane-marker" style="transform: rotate(${heading}deg)">
-                <svg viewBox="0 0 24 24" width="36" height="36">
-                    <path
-                        d="M12 1 L15 10 L23 13 L23 15 L15 14 L15 20 L18 22 L18 24 L12 22 L6 24 L6 22 L9 20 L9 14 L1 15 L1 13 L9 10 Z"
-                        fill="#f5d054"
-                        stroke="#15151b"
-                        stroke-width="1"
-                        stroke-linejoin="round"
-                    />
-                </svg>
-            </div>
+            <svg
+                class="plane-marker"
+                viewBox="0 0 24 24"
+                style="transform: rotate(${Number(track) || 0}deg)"
+                xmlns="http://www.w3.org/2000/svg"
+            >
+                <path
+                    d="M12 1
+                    L13.2 9
+                    L21 14
+                    L21 16
+                    L13.2 13.5
+                    L13 21
+                    L15 23
+                    L15 24
+                    L12 22.5
+                    L9 24
+                    L9 23
+                    L11 21
+                    L10.8 13.5
+                    L3 16
+                    L3 14
+                    L10.8 9
+                    Z"
+                    fill="#ffffff"
+                />
+            </svg>
         `,
         iconSize: [36, 36],
         iconAnchor: [18, 18]
     });
 }
-
 async function getPlanes() {
-    const response = await fetch('api/planes');
-    const data = await response.json();
+    try {
+        const response = await fetch('/api/planes');
+        const data = await response.json();
 
-	data.aircraft.forEach(plane => {
-	if (markers.has(plane.hex)) {
-    const marker = markers.get(plane.hex);
+        // Zapamiętujemy samoloty widoczne w aktualnym odczycie
+        const activePlanes = new Set();
 
-    marker.setLatLng([plane.lat, plane.lon]);
-    marker.setIcon(createPlaneIcon(plane.track));
+        data.aircraft.forEach(plane => {
 
-} else {
-    const newMarker = new Marker(
-        [plane.lat, plane.lon],
-        { icon: createPlaneIcon(plane.track) }
-    ).addTo(map);
+            if (
+                !plane.hex ||
+                typeof plane.lat !== 'number' ||
+                typeof plane.lon !== 'number'
+            ) return;
 
-    markers.set(plane.hex, newMarker);
-}
+            // Pomijamy pozycje starsze niż 60 sekund
+            if (
+                typeof plane.seen_pos === 'number' &&
+                plane.seen_pos > 60
+            ) return;
 
-});
+            activePlanes.add(plane.hex);
+
+            if (markers.has(plane.hex)) {
+                const marker = markers.get(plane.hex);
+
+                marker.setLatLng([plane.lat, plane.lon]);
+                marker.setIcon(createPlaneIcon(plane.track));
+
+            } else {
+                const newMarker = new L.Marker(
+                    [plane.lat, plane.lon],
+                    { icon: createPlaneIcon(plane.track) }
+                ).addTo(map);
+
+                markers.set(plane.hex, newMarker);
+            }
+        });
+
+        // Usuwamy markery samolotów, których nie ma w aktualnych danych
+        for (const [hex, marker] of markers) {
+            if (!activePlanes.has(hex)) {
+                map.removeLayer(marker);
+                markers.delete(hex);
+            }
+        }
+
+    } catch (error) {
+        console.error('Błąd pobierania samolotów:', error);
+    }
 }
 
 getPlanes();
