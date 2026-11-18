@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@2.0.0-beta.4/dist/leaflet.css">
+	<script type="importmap">
+		{"imports": {"leaflet": "https://cdn.jsdelivr.net/npm/leaflet@2.0.0-beta.4/dist/leaflet.js"}}
+	</script>
+</head>
+<body>
+	<div id="map" style="height: 800px"></div>
+	<script type="module">
+	    import {LeafletMap, TileLayer, Marker} from 'leaflet';
+		// the map code goes here
+
+        const map = new LeafletMap('map').setView([50.28778, 21.43167], 13);
+		const markers = new Map();
+		
+        new TileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    {
+        maxZoom: 19,
+        attribution: 'Tiles &copy; Esri'
+    }
+
+    
+).addTo(map);
+
+const marker = new Marker([50.28778, 21.43167]).addTo(map);
+
+
+
+async function getPlanes() {
+    const response = await fetch('api/planes');
+    const data = await response.json();
+
+	data.aircraft.forEach(plane => {
+	if (!Number.isFinite(plane.lat) || !Number.isFinite(plane.lon)) return;
+    if (markers.has(plane.hex)) {
+
+        markers.get(plane.hex).setLatLng([plane.lat, plane.lon]);
+
+    } else {
+
+        const newMarker = new Marker([plane.lat, plane.lon]).addTo(map);
+
+        markers.set(plane.hex, newMarker);
+
+    }
+
+});
+}
+
+getPlanes();
+setInterval(getPlanes, 1500);
+
+
+	</script>
+</body>
+</html>

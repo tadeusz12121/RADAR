@@ -1,0 +1,6 @@
+{ "now" : 1795004844.0,
+  "messages" : 463,
+  "aircraft" : [
+    {"hex":"4d208e","flight":"WZZ685U ","alt_baro":32750,"alt_geom":31950,"gs":422.1,"ias":272,"tas":444,"mach":0.764,"track":172.0,"track_rate":-0.03,"roll":-0.4,"mag_heading":172.3,"baro_rate":832,"geom_rate":832,"squawk":"5560","emergency":"none","category":"A3","nav_qnh":1012.8,"nav_altitude_mcp":32992,"lat":50.398956,"lon":21.483259,"nic":8,"rc":186,"seen_pos":0.8,"version":2,"nic_baro":1,"nac_p":9,"nac_v":2,"sil":3,"sil_type":"perhour","gva":2,"sda":3,"mlat":[],"tisb":[],"messages":463,"seen":0.3,"rssi":-26.5}
+  ]
+}
