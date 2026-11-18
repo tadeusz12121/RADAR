@@ -9,9 +9,21 @@
 	</script>
 </head>
 <body>
+	<style>
+		.plane-div-icon {
+    background: transparent;
+    border: none;
+}
+
+.plane-marker {
+    width: 36px;
+    height: 36px;
+    filter: drop-shadow(0 0 4px rgba(245, 208, 84, 0.8));
+}
+	</style>
 	<div id="map" style="height: 800px"></div>
 	<script type="module">
-	    import {LeafletMap, TileLayer, Marker} from 'leaflet';
+	   import { LeafletMap, TileLayer, Marker, DivIcon } from 'leaflet';
 		// the map code goes here
 
         const map = new LeafletMap('map').setView([50.28778, 21.43167], 13);
@@ -29,25 +41,48 @@
 
 const marker = new Marker([50.28778, 21.43167]).addTo(map);
 
+function createPlaneIcon(track) {
+    const heading = Number.isFinite(track) ? track : 0;
 
+    return new DivIcon({
+        className: 'plane-div-icon',
+        html: `
+            <div class="plane-marker" style="transform: rotate(${heading}deg)">
+                <svg viewBox="0 0 24 24" width="36" height="36">
+                    <path
+                        d="M12 1 L15 10 L23 13 L23 15 L15 14 L15 20 L18 22 L18 24 L12 22 L6 24 L6 22 L9 20 L9 14 L1 15 L1 13 L9 10 Z"
+                        fill="#f5d054"
+                        stroke="#15151b"
+                        stroke-width="1"
+                        stroke-linejoin="round"
+                    />
+                </svg>
+            </div>
+        `,
+        iconSize: [36, 36],
+        iconAnchor: [18, 18]
+    });
+}
 
 async function getPlanes() {
     const response = await fetch('api/planes');
     const data = await response.json();
 
 	data.aircraft.forEach(plane => {
-	if (!Number.isFinite(plane.lat) || !Number.isFinite(plane.lon)) return;
-    if (markers.has(plane.hex)) {
+	if (markers.has(plane.hex)) {
+    const marker = markers.get(plane.hex);
 
-        markers.get(plane.hex).setLatLng([plane.lat, plane.lon]);
+    marker.setLatLng([plane.lat, plane.lon]);
+    marker.setIcon(createPlaneIcon(plane.track));
 
-    } else {
+} else {
+    const newMarker = new Marker(
+        [plane.lat, plane.lon],
+        { icon: createPlaneIcon(plane.track) }
+    ).addTo(map);
 
-        const newMarker = new Marker([plane.lat, plane.lon]).addTo(map);
-
-        markers.set(plane.hex, newMarker);
-
-    }
+    markers.set(plane.hex, newMarker);
+}
 
 });
 }
