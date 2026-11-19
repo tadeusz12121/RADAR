@@ -5,6 +5,9 @@ import { readFile } from 'node:fs/promises';
 import DailyAircraft from './daily.js';
 
 const url = "mongodb://127.0.0.1:27017/radar";
+const TRACK_SAMPLE_INTERVAL_MS = 5_000;
+const TRACK_POINT_LIMIT = 18_000;
+const LIVE_TRACK_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const app = express();
 app.use(express.static('public'));
@@ -43,6 +46,12 @@ function getToday() {
         month: '2-digit',
         day: '2-digit'
     }).format(new Date());
+}
+
+function getYesterday() {
+    const date = new Date(`${getToday()}T00:00:00.000Z`);
+    date.setUTCDate(date.getUTCDate() - 1);
+    return date.toISOString().slice(0, 10);
 }
 
 function isValidArchiveDate(date) {
@@ -166,17 +175,54 @@ app.get('/api/archive/:date', async (req, res) => {
 
 app.get('/api/today/tracks', async (req, res) => {
     try {
-        const planes = await DailyAircraft.find({ date: getToday() })
+        const cutoff = new Date(Date.now() - LIVE_TRACK_WINDOW_MS);
+        const records = await DailyAircraft.find({
+            date: { $in: [getToday(), getYesterday()] },
+            trackPoints: { $elemMatch: { at: { $gte: cutoff } } }
+        })
             .select({
                 hex: 1,
                 callsign: 1,
                 registration: 1,
                 maxAltitude: 1,
+                lastSeen: 1,
                 'trackPoints.at': 1,
                 'trackPoints.lat': 1,
                 'trackPoints.lon': 1
             })
             .lean();
+
+        const tracks = new Map();
+        for (const record of records) {
+            const track = tracks.get(record.hex) ?? {
+                hex: record.hex,
+                callsign: record.callsign,
+                registration: record.registration,
+                maxAltitude: record.maxAltitude,
+                lastSeen: record.lastSeen,
+                trackPoints: []
+            };
+            const latestRecord = !track.lastSeen || record.lastSeen > track.lastSeen;
+            if (latestRecord) {
+                track.callsign = record.callsign ?? track.callsign;
+                track.registration = record.registration ?? track.registration;
+                track.lastSeen = record.lastSeen;
+            }
+            if (typeof record.maxAltitude === 'number') {
+                track.maxAltitude = Math.max(track.maxAltitude ?? 0, record.maxAltitude);
+            }
+            track.trackPoints.push(...(record.trackPoints ?? []).filter(point =>
+                new Date(point.at).getTime() >= cutoff.getTime()
+            ));
+            tracks.set(record.hex, track);
+        }
+
+        const planes = [...tracks.values()].map(track => ({
+            ...track,
+            trackPoints: track.trackPoints.sort((a, b) =>
+                new Date(a.at).getTime() - new Date(b.at).getTime()
+            )
+        }));
         res.json({ planes });
     } catch (err) {
         console.error('Błąd pobierania śladów samolotów:', err);
@@ -499,7 +545,7 @@ async function readplanes() {
             }
 
             const lastSample = lastTrackSampleAt.get(plane.hex) ?? 0;
-            if (now.getTime() - lastSample >= 15_000) {
+            if (now.getTime() - lastSample >= TRACK_SAMPLE_INTERVAL_MS) {
                 const point = {
                     at: now,
                     lat: plane.lat,
@@ -521,7 +567,7 @@ async function readplanes() {
                 update.$push = {
                     trackPoints: {
                         $each: [point],
-                        $slice: -5000
+                        $slice: -TRACK_POINT_LIMIT
                     }
                 };
                 lastTrackSampleAt.set(plane.hex, now.getTime());

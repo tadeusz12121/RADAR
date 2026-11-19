@@ -362,4 +362,4 @@ getHealth();
 loadTrails();
 setInterval(getPlanes, 1500);
 setInterval(getHealth, 5000);
-setInterval(loadTrails, 15_000);
+setInterval(loadTrails, 5_000);
