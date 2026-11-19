@@ -9,7 +9,14 @@ const connectionLabel = document.querySelector('#connection-label');
 const lastUpdate = document.querySelector('#last-update');
 const flightPanel = document.querySelector('#flight-panel');
 const panelToggle = document.querySelector('#panel-toggle');
+const planeSearch = document.querySelector('#plane-search');
+const altitudeFilter = document.querySelector('#altitude-filter');
+const filterSummary = document.querySelector('#filter-summary');
+const trailToggle = document.querySelector('#trail-toggle');
 let listSignature = null;
+let latestActivePlanes = [];
+let trailsVisible = true;
+let trailSignature = '';
 
 const map = L.map('map', {
     zoomControl: false,
@@ -39,6 +46,8 @@ L.circleMarker(MIELEC, {
     fillColor: '#58e0c2',
     fillOpacity: 1
 }).addTo(map);
+
+const trailLayer = L.layerGroup().addTo(map);
 
 const timeFormatter = new Intl.DateTimeFormat('pl-PL', {
     timeZone: 'Europe/Warsaw',
@@ -85,31 +94,52 @@ function createPopup(plane) {
     return content;
 }
 
-function setConnection(online) {
+function setConnection(receiverOnline, databaseOnline) {
+    const online = receiverOnline && databaseOnline;
     connectionIndicator.classList.toggle('is-online', online);
     connectionIndicator.classList.toggle('is-offline', !online);
-    connectionLabel.textContent = online ? 'SERWER RADARU ONLINE' : 'SERWER RADARU NIEDOSTĘPNY';
+    connectionLabel.textContent = !receiverOnline
+        ? 'BRAK SYGNAŁU ODBIORNIKA'
+        : databaseOnline
+            ? 'ODBIORNIK ONLINE'
+            : 'BAZA DANYCH OFFLINE';
+}
+
+function matchesFilters(plane) {
+    const query = planeSearch.value.trim().toLowerCase();
+    const matchesText = !query ||
+        `${plane.flight ?? ''} ${plane.hex ?? ''} ${plane.r ?? ''}`
+            .toLowerCase()
+            .includes(query);
+    const minimumAltitude = Number(altitudeFilter.value);
+    const matchesAltitude = altitudeFilter.value === 'all' ||
+        (typeof plane.alt_baro === 'number' && plane.alt_baro >= minimumAltitude);
+    return matchesText && matchesAltitude;
 }
 
 function renderPlaneList(planes) {
-    const signature = planes.map(plane =>
+    const filtered = planes.filter(matchesFilters);
+    const signature = filtered.map(plane =>
         [plane.hex, plane.flight, plane.alt_baro, plane.gs].join(':')
-    ).join('|');
+    ).join('|') + `#${planes.length}`;
 
     aircraftCount.textContent = String(planes.length);
+    filterSummary.textContent = `${filtered.length} z ${planes.length} widocznych pozycji`;
     if (signature === listSignature) return;
     listSignature = signature;
     planeList.replaceChildren();
 
-    if (!planes.length) {
+    if (!filtered.length) {
         const empty = document.createElement('div');
         empty.className = 'list-placeholder';
-        empty.textContent = 'Brak aktywnych samolotów z aktualną pozycją. Gdy odbiornik wykryje nowy ślad, pojawi się tutaj.';
+        empty.textContent = planes.length
+            ? 'Brak samolotów pasujących do wybranych filtrów.'
+            : 'Brak aktywnych samolotów z aktualną pozycją. Gdy odbiornik wykryje nowy ślad, pojawi się tutaj.';
         planeList.append(empty);
         return;
     }
 
-    const ordered = [...planes].sort((a, b) =>
+    const ordered = [...filtered].sort((a, b) =>
         (a.seen_pos ?? 0) - (b.seen_pos ?? 0)
     );
 
@@ -157,6 +187,79 @@ function openPanel() {
 function closePanel() {
     flightPanel.classList.remove('is-open');
     panelToggle.setAttribute('aria-expanded', 'false');
+}
+
+function applyMarkerFilters() {
+    const visibleHexes = new Set(
+        latestActivePlanes.filter(matchesFilters).map(plane => plane.hex)
+    );
+    for (const [hex, marker] of markers) {
+        if (visibleHexes.has(hex)) {
+            if (!map.hasLayer(marker)) marker.addTo(map);
+        } else {
+            marker.removeFrom(map);
+        }
+    }
+    renderPlaneList(latestActivePlanes);
+}
+
+async function getHealth() {
+    try {
+        const response = await fetch('/api/health', { cache: 'no-store' });
+        if (!response.ok) throw new Error(`Serwer zwrócił status ${response.status}`);
+        const health = await response.json();
+        setConnection(health.receiverOnline === true, health.databaseOnline === true);
+        lastUpdate.textContent = health.lastReadAt
+            ? timeFormatter.format(new Date(health.lastReadAt))
+            : 'Brak odczytu';
+    } catch (error) {
+        console.error('Błąd pobierania statusu radaru:', error);
+        setConnection(false, false);
+    }
+}
+
+async function loadTrails() {
+    try {
+        const response = await fetch('/api/today/tracks', { cache: 'no-store' });
+        if (!response.ok) throw new Error(`Serwer zwrócił status ${response.status}`);
+        const data = await response.json();
+        if (!Array.isArray(data.planes)) throw new Error('Nieprawidłowy format śladów');
+
+        const query = planeSearch.value.trim().toLowerCase();
+        const minimumAltitude = altitudeFilter.value;
+        const signature = `${query}:${minimumAltitude}|` + data.planes.map(plane =>
+            `${plane.hex}:${plane.trackPoints?.length ?? 0}:${plane.trackPoints?.at(-1)?.at ?? ''}`
+        ).join('|');
+        if (signature === trailSignature) return;
+        trailSignature = signature;
+        trailLayer.clearLayers();
+
+        for (const plane of data.planes) {
+            const matchesText = !query ||
+                `${plane.callsign ?? ''} ${plane.hex ?? ''}`.toLowerCase().includes(query);
+            const matchesAltitude = minimumAltitude === 'all' ||
+                (typeof plane.maxAltitude === 'number' && plane.maxAltitude >= Number(minimumAltitude));
+            if (!matchesText || !matchesAltitude) continue;
+
+            const points = (plane.trackPoints ?? []).filter(point =>
+                Number.isFinite(point.lat) && Number.isFinite(point.lon)
+            );
+            if (points.length < 2) continue;
+
+            L.polyline(points.map(point => [point.lat, point.lon]), {
+                color: '#58e0c2',
+                weight: 2,
+                opacity: 0.45,
+                lineCap: 'round',
+                lineJoin: 'round'
+            }).bindTooltip(plane.callsign || plane.hex.toUpperCase())
+                .addTo(trailLayer);
+        }
+
+        if (trailsVisible && !map.hasLayer(trailLayer)) trailLayer.addTo(map);
+    } catch (error) {
+        console.error('Błąd pobierania śladów samolotów:', error);
+    }
 }
 
 async function getPlanes() {
@@ -208,12 +311,11 @@ async function getPlanes() {
             }
         }
 
-        renderPlaneList([...activePlanes.values()]);
-        lastUpdate.textContent = timeFormatter.format(new Date());
-        setConnection(true);
+        latestActivePlanes = [...activePlanes.values()];
+        applyMarkerFilters();
     } catch (error) {
         console.error('Błąd pobierania samolotów:', error);
-        setConnection(false);
+        setConnection(false, false);
     }
 }
 
@@ -227,6 +329,26 @@ document.querySelector('#center-button').addEventListener('click', () => {
 });
 panelToggle.addEventListener('click', togglePanel);
 document.querySelector('#panel-close').addEventListener('click', closePanel);
+planeSearch.addEventListener('input', () => {
+    applyMarkerFilters();
+    loadTrails();
+});
+altitudeFilter.addEventListener('change', () => {
+    applyMarkerFilters();
+    loadTrails();
+});
+trailToggle.addEventListener('click', () => {
+    trailsVisible = !trailsVisible;
+    trailToggle.classList.toggle('is-active', trailsVisible);
+    trailToggle.setAttribute('aria-pressed', String(trailsVisible));
+    trailToggle.querySelector('strong').textContent = trailsVisible ? 'WŁ.' : 'WYŁ.';
+    if (trailsVisible) trailLayer.addTo(map);
+    else trailLayer.remove();
+});
 
 getPlanes();
+getHealth();
+loadTrails();
 setInterval(getPlanes, 1500);
+setInterval(getHealth, 5000);
+setInterval(loadTrails, 15_000);

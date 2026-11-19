@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#09131d">
+    <meta name="description" content="Pełne archiwum dziennych obserwacji samolotów nad Mielcem.">
+    <title>Archiwum lotów — Mielec RADAR</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="/statystyki.css">
+    <link rel="stylesheet" href="/archiwum.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "leaflet": "https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.esm.js"
+        }
+    }
+    </script>
+    <script type="module" src="/archiwum.js"></script>
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" href="/" aria-label="Wróć do radaru">
+            <span class="brand-mark" aria-hidden="true">✈</span>
+            <span>MIELEC<span class="brand-light"> RADAR</span></span>
+        </a>
+        <nav aria-label="Nawigacja główna">
+            <a href="/">Radar na żywo</a>
+            <a href="/statystyki.html">Statystyki</a>
+            <a class="nav-active" href="/archiwum.html" aria-current="page">Archiwum</a>
+        </nav>
+    </header>
+
+    <main class="archive-main">
+        <section class="archive-hero">
+            <div>
+                <p class="eyebrow">MIELEC RADAR · PEŁNA HISTORIA</p>
+                <h1>Archiwum <span>lotów.</span></h1>
+                <p class="archive-description">Wybierz dzień, aby przejrzeć każdy zarejestrowany samolot, jego parametry, surowe dane ADS-B i zapisane punkty trasy.</p>
+            </div>
+            <div class="archive-date-control">
+                <label for="archive-date">Dzień archiwum</label>
+                <div class="date-control-row">
+                    <select id="archive-date" aria-label="Wybierz dzień z archiwum">
+                        <option value="">Ładowanie dostępnych dni…</option>
+                    </select>
+                    <button id="load-archive" type="button">Pokaż dzień <span aria-hidden="true">→</span></button>
+                </div>
+                <small id="archive-timezone">Czas lokalny: Europe/Warsaw</small>
+            </div>
+        </section>
+
+        <section class="archive-summary" aria-label="Podsumowanie archiwum">
+            <article><span>Samoloty</span><strong id="archive-count">—</strong></article>
+            <article><span>Najwyższy pułap</span><strong id="archive-max-altitude">—</strong></article>
+            <article><span>Największa prędkość</span><strong id="archive-max-speed">—</strong></article>
+            <article><span>Zapisane punkty trasy</span><strong id="archive-track-count">—</strong></article>
+        </section>
+
+        <section class="archive-map-section">
+            <div class="archive-section-heading">
+                <div>
+                    <p class="eyebrow">ODTWARZANIE TRASY</p>
+                    <h2>Ślad wybranego samolotu</h2>
+                </div>
+                <select id="track-aircraft" aria-label="Wybierz samolot do wyświetlenia trasy" disabled>
+                    <option>Najpierw wybierz dzień</option>
+                </select>
+            </div>
+            <div class="archive-map-wrap">
+                <div id="archive-map" aria-label="Mapa zapisanej trasy samolotu"></div>
+                <p id="track-message" class="track-message">Wybierz samolot, aby zobaczyć jego zapisaną trasę.</p>
+            </div>
+            <p class="archive-note">Pozycje trasy są zapisywane orientacyjnie co 15 sekund. Starsze wpisy archiwum mogą nie zawierać śladów ani pełnych danych, ponieważ te informacje zaczynają gromadzić się po wdrożeniu nowego zapisu.</p>
+        </section>
+
+        <section class="archive-aircraft-section">
+            <div class="archive-section-heading archive-list-heading">
+                <div>
+                    <p class="eyebrow">SZCZEGÓŁOWE REKORDY</p>
+                    <h2>Samoloty z tego dnia <span id="filtered-count"></span></h2>
+                </div>
+                <label class="search-box">
+                    <span aria-hidden="true">⌕</span>
+                    <input id="archive-search" type="search" placeholder="Szukaj callsign, rejestracji lub HEX…" autocomplete="off">
+                </label>
+            </div>
+            <div id="archive-status" class="status-message is-visible" role="status">Pobieranie archiwum…</div>
+            <div id="archive-aircraft-list" class="archive-aircraft-list"></div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <span>MIELEC RADAR <span class="footer-muted">· archiwum ADS-B</span></span>
+        <a href="/">Wróć do mapy radarowej <span aria-hidden="true">↗</span></a>
+    </footer>
+</body>
+</html>

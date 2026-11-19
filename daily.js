@@ -1,6 +1,26 @@
 
 import mongoose from 'mongoose';
 
+const trackPointSchema = new mongoose.Schema({
+    at: {
+        type: Date,
+        required: true
+    },
+    lat: {
+        type: Number,
+        required: true
+    },
+    lon: {
+        type: Number,
+        required: true
+    },
+    altitude: Number,
+    speed: Number,
+    heading: Number,
+    verticalRate: Number,
+    data: mongoose.Schema.Types.Mixed
+}, { _id: false });
+
 const dailyAircraftSchema = new mongoose.Schema({
     date: {
         type: String,
@@ -13,6 +33,22 @@ const dailyAircraftSchema = new mongoose.Schema({
     },
 
     callsign: String,
+    registration: String,
+    aircraftType: String,
+    category: String,
+    squawk: String,
+    emergency: String,
+    lastLatitude: Number,
+    lastLongitude: Number,
+    lastAltitude: Number,
+    lastSpeed: Number,
+    lastHeading: Number,
+    verticalRate: Number,
+    latestData: mongoose.Schema.Types.Mixed,
+    trackPoints: {
+        type: [trackPointSchema],
+        default: []
+    },
 
     firstSeen: {
         type: Date,

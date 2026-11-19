@@ -12,6 +12,8 @@ app.use(express.static('public'));
 let i = 0;
 let aircrafts = [];
 let isReading = false;
+let lastSuccessfulReadAt = null;
+const lastTrackSampleAt = new Map();
 const aircraftPhotoCache = new Map();
 
 // Łączenie z MongoDB
@@ -48,15 +50,95 @@ function getToday() {
     }).format(new Date());
 }
 
+function isValidArchiveDate(date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+    const parsed = new Date(`${date}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) &&
+        parsed.toISOString().slice(0, 10) === date;
+}
+
+app.get('/api/health', (req, res) => {
+    const currentPlanes = aircrafts.aircraft ?? [];
+    const receiverOnline = lastSuccessfulReadAt !== null &&
+        Date.now() - lastSuccessfulReadAt.getTime() < 10_000;
+
+    res.json({
+        receiverOnline,
+        databaseOnline: mongoose.connection.readyState === 1,
+        lastReadAt: lastSuccessfulReadAt,
+        activeAircraft: currentPlanes.filter(plane =>
+            typeof plane.lat === 'number' &&
+            typeof plane.lon === 'number' &&
+            !(typeof plane.seen_pos === 'number' && plane.seen_pos > 60)
+        ).length
+    });
+});
+
+app.get('/api/archive/days', async (req, res) => {
+    try {
+        const dates = await DailyAircraft.distinct('date');
+        res.json({
+            today: getToday(),
+            days: dates.filter(isValidArchiveDate).sort().reverse()
+        });
+    } catch (err) {
+        console.error('Błąd pobierania dni archiwum:', err);
+        res.status(500).json({
+            error: 'Nie udało się pobrać dni archiwum'
+        });
+    }
+});
+
+app.get('/api/archive/:date', async (req, res) => {
+    const { date } = req.params;
+    if (!isValidArchiveDate(date)) {
+        return res.status(400).json({
+            error: 'Nieprawidłowa data archiwum'
+        });
+    }
+
+    try {
+        const planes = await DailyAircraft.find({ date })
+            .sort({ firstSeen: 1 })
+            .lean();
+        res.json({ date, count: planes.length, planes });
+    } catch (err) {
+        console.error(`Błąd pobierania archiwum za ${date}:`, err);
+        res.status(500).json({
+            error: 'Nie udało się pobrać archiwum'
+        });
+    }
+});
+
+app.get('/api/today/tracks', async (req, res) => {
+    try {
+        const planes = await DailyAircraft.find({ date: getToday() })
+            .select({
+                hex: 1,
+                callsign: 1,
+                'trackPoints.at': 1,
+                'trackPoints.lat': 1,
+                'trackPoints.lon': 1
+            })
+            .lean();
+        res.json({ planes });
+    } catch (err) {
+        console.error('Błąd pobierania śladów samolotów:', err);
+        res.status(500).json({
+            error: 'Nie udało się pobrać śladów samolotów'
+        });
+    }
+});
+
 app.get('/api/today', async (req, res) => {
     try {
         const today = getToday();
 
         const planes = await DailyAircraft.find({
             date: today
-        }).sort({
-            firstSeen: 1
-        });
+        })
+            .select('date hex callsign registration aircraftType category squawk emergency firstSeen lastSeen maxAltitude maxSpeed messages lastLatitude lastLongitude lastAltitude lastSpeed lastHeading verticalRate')
+            .sort({ firstSeen: 1 });
 
         res.json(planes);
 
@@ -175,6 +257,7 @@ async function readplanes() {
         );
 
         aircrafts = JSON.parse(data);
+        lastSuccessfulReadAt = new Date();
 
         i++;
 
@@ -210,19 +293,50 @@ async function readplanes() {
 
 
             // Dane do zapisania
+            const now = new Date();
             const update = {
                 $set: {
-                    lastSeen: new Date()
+                    lastSeen: now,
+                    lastLatitude: plane.lat,
+                    lastLongitude: plane.lon,
+                    latestData: plane
                 },
 
                 $setOnInsert: {
-                    firstSeen: new Date()
+                    firstSeen: now
                 }
             };
 
             // Callsign
             if (plane.flight?.trim()) {
                 update.$set.callsign = plane.flight.trim();
+            }
+            if (typeof plane.r === 'string') {
+                update.$set.registration = plane.r.trim();
+            }
+            if (typeof plane.t === 'string') {
+                update.$set.aircraftType = plane.t.trim();
+            }
+            if (typeof plane.category === 'string') {
+                update.$set.category = plane.category;
+            }
+            if (typeof plane.squawk === 'string') {
+                update.$set.squawk = plane.squawk;
+            }
+            if (typeof plane.emergency === 'string') {
+                update.$set.emergency = plane.emergency;
+            }
+            if (typeof plane.alt_baro === 'number') {
+                update.$set.lastAltitude = plane.alt_baro;
+            }
+            if (typeof plane.gs === 'number') {
+                update.$set.lastSpeed = plane.gs;
+            }
+            if (typeof plane.track === 'number') {
+                update.$set.lastHeading = plane.track;
+            }
+            if (typeof plane.baro_rate === 'number') {
+                update.$set.verticalRate = plane.baro_rate;
             }
 
             // Największa wysokość
@@ -247,6 +361,35 @@ async function readplanes() {
                     ...update.$max,
                     messages: plane.messages
                 };
+            }
+
+            const lastSample = lastTrackSampleAt.get(plane.hex) ?? 0;
+            if (now.getTime() - lastSample >= 15_000) {
+                const point = {
+                    at: now,
+                    lat: plane.lat,
+                    lon: plane.lon,
+                    data: plane
+                };
+                if (typeof plane.alt_baro === 'number') {
+                    point.altitude = plane.alt_baro;
+                }
+                if (typeof plane.gs === 'number') {
+                    point.speed = plane.gs;
+                }
+                if (typeof plane.track === 'number') {
+                    point.heading = plane.track;
+                }
+                if (typeof plane.baro_rate === 'number') {
+                    point.verticalRate = plane.baro_rate;
+                }
+                update.$push = {
+                    trackPoints: {
+                        $each: [point],
+                        $slice: -5000
+                    }
+                };
+                lastTrackSampleAt.set(plane.hex, now.getTime());
             }
 
 
