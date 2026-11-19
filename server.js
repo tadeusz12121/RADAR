@@ -2,7 +2,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import { readFile } from 'node:fs/promises';
-import DailyAircraft from './models/DailyAircraft.js';
+import DailyAircraft from './daily.js';
 
 const url = "mongodb://127.0.0.1:27017/radar";
 
@@ -12,6 +12,7 @@ app.use(express.static('public'));
 let i = 0;
 let aircrafts = [];
 let isReading = false;
+const aircraftPhotoCache = new Map();
 
 // Łączenie z MongoDB
 mongoose.connect(url)
@@ -64,6 +65,64 @@ app.get('/api/today', async (req, res) => {
 
         res.status(500).json({
             error: 'Nie udało się pobrać samolotów'
+        });
+    }
+});
+
+app.get('/api/aircraft-photo/:hex', async (req, res) => {
+    const hex = req.params.hex.toLowerCase();
+
+    if (!/^[a-f0-9]{6}$/.test(hex)) {
+        return res.status(400).json({
+            error: 'Nieprawidłowy identyfikator samolotu'
+        });
+    }
+
+    const cached = aircraftPhotoCache.get(hex);
+    if (cached && cached.expiresAt > Date.now()) {
+        return res.status(cached.photo ? 200 : 404).json(
+            cached.photo ?? { error: 'Nie znaleziono zdjęcia samolotu' }
+        );
+    }
+
+    try {
+        const response = await fetch(
+            `https://api.planespotters.net/pub/photos/hex/${hex}`,
+            { signal: AbortSignal.timeout(8000) }
+        );
+
+        if (!response.ok) {
+            throw new Error(`PlaneSpotters zwrócił status ${response.status}`);
+        }
+
+        const data = await response.json();
+        const photo = data.photos?.[0];
+        const result = photo
+            ? {
+                url: photo.thumbnail_large?.src ?? photo.thumbnail?.src,
+                link: photo.link
+            }
+            : null;
+
+        if (result?.url) {
+            aircraftPhotoCache.set(hex, {
+                photo: result,
+                expiresAt: Date.now() + 6 * 60 * 60 * 1000
+            });
+            return res.json(result);
+        }
+
+        aircraftPhotoCache.set(hex, {
+            photo: null,
+            expiresAt: Date.now() + 60 * 60 * 1000
+        });
+        return res.status(404).json({
+            error: 'Nie znaleziono zdjęcia samolotu'
+        });
+    } catch (err) {
+        console.error(`Błąd pobierania zdjęcia samolotu ${hex}:`, err);
+        return res.status(502).json({
+            error: 'Nie udało się pobrać zdjęcia samolotu'
         });
     }
 });

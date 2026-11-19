@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#09131d">
+    <meta name="description" content="Dzienne statystyki samolotów zarejestrowanych w okolicy Mielca: liczba przelotów, parametry i galeria zdjęć.">
+    <title>Statystyki lotów — Mielec RADAR</title>
+    <link rel="stylesheet" href="/statystyki.css">
+    <script src="/statystyki.js" defer></script>
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" href="/" aria-label="Wróć do radaru">
+            <span class="brand-mark" aria-hidden="true">✈</span>
+            <span>MIELEC<span class="brand-light"> RADAR</span></span>
+        </a>
+        <nav aria-label="Nawigacja główna">
+            <a href="/">Radar na żywo</a>
+            <a class="nav-active" href="/statystyki.html" aria-current="page">Statystyki</a>
+        </nav>
+        <button class="refresh-button" id="refresh-button" type="button">
+            <span aria-hidden="true">↻</span> Odśwież dane
+        </button>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="hero-copy">
+                <p class="eyebrow"><span class="live-dot"></span> DZIENNY RAPORT · MIELEC</p>
+                <h1>Ruch lotniczy<br><span>nad Mielcem.</span></h1>
+                <p class="hero-description">Samoloty zarejestrowane przez radar w ciągu dzisiejszego dnia. Sprawdź ruch, parametry lotów i zdjęcia maszyn.</p>
+            </div>
+            <div class="date-panel">
+                <span class="date-icon" aria-hidden="true">▦</span>
+                <span class="date-label">DZISIAJ, CZAS POLSKI</span>
+                <strong id="report-date">Ładowanie…</strong>
+                <span class="update-label">Ostatnia aktualizacja: <span id="last-updated">—</span></span>
+            </div>
+            <div class="hero-grid" aria-hidden="true"></div>
+        </section>
+
+        <section class="stats-grid" aria-label="Podsumowanie dnia">
+            <article class="stat-card stat-primary">
+                <div class="stat-top"><span>Samoloty dzisiaj</span><span class="stat-icon">✈</span></div>
+                <strong class="stat-value" id="plane-count">—</strong>
+                <span class="stat-caption">unikalnych identyfikatorów ICAO</span>
+            </article>
+            <article class="stat-card">
+                <div class="stat-top"><span>Najwyżej</span><span class="stat-icon">↗</span></div>
+                <strong class="stat-value" id="max-altitude">—</strong>
+                <span class="stat-caption">maksymalna zarejestrowana wysokość</span>
+            </article>
+            <article class="stat-card">
+                <div class="stat-top"><span>Najszybciej</span><span class="stat-icon">⌁</span></div>
+                <strong class="stat-value" id="max-speed">—</strong>
+                <span class="stat-caption">maksymalna prędkość względem ziemi</span>
+            </article>
+            <article class="stat-card">
+                <div class="stat-top"><span>Największy ruch</span><span class="stat-icon">◷</span></div>
+                <strong class="stat-value stat-value-small" id="busiest-hour">—</strong>
+                <span class="stat-caption" id="busiest-caption">godzina z największą liczbą nowych samolotów</span>
+            </article>
+        </section>
+
+        <section class="content-grid">
+            <article class="panel activity-panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">ROZKŁAD DNIA</p>
+                        <h2>Aktywność godzinowa</h2>
+                    </div>
+                    <span class="heading-note">według pierwszego wykrycia</span>
+                </div>
+                <div class="chart" id="hour-chart" role="img" aria-label="Liczba samolotów zarejestrowanych w każdej godzinie dnia"></div>
+                <div class="chart-legend"><span class="legend-dot"></span> Nowe samoloty wykryte w danej godzinie</div>
+            </article>
+
+            <article class="panel highlights-panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">WARTO ZAUWAŻYĆ</p>
+                        <h2>Szczegóły dnia</h2>
+                    </div>
+                    <span class="heading-icon" aria-hidden="true">✳</span>
+                </div>
+                <div class="highlight-list">
+                    <div class="highlight-row"><span>Pierwszy wykryty</span><strong id="first-seen">—</strong></div>
+                    <div class="highlight-row"><span>Ostatni wykryty</span><strong id="last-seen">—</strong></div>
+                    <div class="highlight-row"><span>Callsign odnotowany</span><strong id="top-callsign">—</strong></div>
+                    <div class="highlight-row"><span>Średnia wysokość maks.</span><strong id="average-altitude">—</strong></div>
+                </div>
+                <p class="highlight-footnote">Wysokość podawana jest w stopach, a prędkość w węzłach (kt).</p>
+            </article>
+        </section>
+
+        <section class="gallery-section">
+            <div class="section-heading gallery-heading">
+                <div>
+                    <p class="eyebrow">ROZPOZNANE MASZYNY</p>
+                    <h2>Galeria samolotów <span class="gallery-count" id="gallery-count"></span></h2>
+                </div>
+                <label class="search-box">
+                    <span aria-hidden="true">⌕</span>
+                    <input id="search-input" type="search" placeholder="Szukaj callsign lub hex…" autocomplete="off">
+                </label>
+            </div>
+            <div class="status-message" id="status-message" role="status">Pobieranie dzisiejszych danych…</div>
+            <div class="aircraft-grid" id="aircraft-grid" aria-live="polite"></div>
+            <p class="source-note">Zdjęcia pochodzą z bazy PlaneSpotters. Nie każdy samolot ma przypisane publiczne zdjęcie. Dane radarowe obejmują pozycje odebrane w promieniu ok. 20 km od Mielca; statystyki liczone są od uruchomienia zbierania danych.</p>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <span>MIELEC RADAR <span class="footer-muted">· obserwacja ADS-B</span></span>
+        <a href="/">Wróć do mapy radarowej <span aria-hidden="true">↗</span></a>
+    </footer>
+</body>
+</html>
