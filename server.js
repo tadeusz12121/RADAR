@@ -264,8 +264,35 @@ app.get('/api/aircraft-photo/:hex', async (req, res) => {
         }
 
         const aircraft = await aircraftResponse.json();
+        const manufacturer = typeof aircraft.manufacturer === 'string'
+            ? aircraft.manufacturer.trim()
+            : '';
+        const modelName = typeof aircraft.type === 'string'
+            ? aircraft.type.trim()
+            : '';
+        const aircraftType = modelName
+            ? manufacturer && !modelName.toLowerCase().includes(manufacturer.toLowerCase())
+                ? `${manufacturer} ${modelName}`
+                : modelName
+            : typeof aircraft.icao_type_code === 'string'
+                ? aircraft.icao_type_code.trim()
+                : null;
         const registration = aircraft.registration?.trim();
         if (!registration || !/^[a-z0-9-]{2,10}$/i.test(registration)) {
+            if (aircraftType) {
+                const metadata = {
+                    url: null,
+                    link: null,
+                    source: 'HexDB',
+                    registration: null,
+                    aircraftType
+                };
+                aircraftPhotoCache.set(hex, {
+                    photo: metadata,
+                    expiresAt: Date.now() + 60 * 60 * 1000
+                });
+                return res.json(metadata);
+            }
             aircraftPhotoCache.set(hex, {
                 photo: null,
                 expiresAt: Date.now() + 60 * 60 * 1000
@@ -293,14 +320,16 @@ app.get('/api/aircraft-photo/:hex', async (req, res) => {
                 url: parsedImageUrl.toString(),
                 link: `https://hexdb.io/api/v2/aircraft/${hex}`,
                 source: 'HexDB',
-                registration
+                registration,
+                aircraftType
             };
         } else {
             photo = {
                 url: null,
                 link: jetPhotosUrl.toString(),
                 source: 'JetPhotos',
-                registration
+                registration,
+                aircraftType
             };
         }
 

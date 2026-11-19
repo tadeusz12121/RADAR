@@ -135,6 +135,7 @@ function addPhotoLink(photoArea, url, label) {
 function loadPhoto(card) {
     const hex = card.dataset.hex;
     const photoArea = card.querySelector('.aircraft-photo');
+    const model = card.querySelector('.aircraft-model');
     fetch(`/api/aircraft-photo/${encodeURIComponent(hex)}`)
         .then(async response => {
             if (response.status === 404) return null;
@@ -142,6 +143,12 @@ function loadPhoto(card) {
             return response.json();
         })
         .then(photo => {
+            if (photo?.aircraftType) {
+                model.textContent = photo.aircraftType;
+                card.dataset.model = photo.aircraftType;
+            } else if (!card.dataset.model) {
+                model.textContent = 'Model nieznany';
+            }
             photoArea.replaceChildren();
             if (!photo?.url) {
                 photoArea.append(createPlaceholder());
@@ -162,6 +169,7 @@ function loadPhoto(card) {
             if (photo.link) addPhotoLink(photoArea, photo.link, `Źródło: ${photo.source ?? 'zdjęcie'}`);
         })
         .catch(() => {
+            if (!card.dataset.model) model.textContent = 'Model niedostępny';
             photoArea.replaceChildren(createPlaceholder());
         });
 }
@@ -172,6 +180,10 @@ function createAircraftCard(plane) {
     card.className = 'aircraft-card';
     card.dataset.hex = plane.hex ?? '';
     card.dataset.callsign = callsign;
+    const modelName = typeof plane.aircraftType === 'string'
+        ? plane.aircraftType.trim()
+        : '';
+    card.dataset.model = modelName;
 
     const photo = document.createElement('div');
     photo.className = 'aircraft-photo';
@@ -183,6 +195,9 @@ function createAircraftCard(plane) {
 
     const info = document.createElement('div');
     info.className = 'aircraft-info';
+    const model = document.createElement('div');
+    model.className = 'aircraft-model';
+    model.textContent = modelName || 'Sprawdzanie modelu…';
     const title = document.createElement('div');
     title.className = 'aircraft-title';
     const heading = document.createElement('h3');
@@ -211,7 +226,7 @@ function createAircraftCard(plane) {
         metrics.append(metric);
     }
 
-    info.append(title, seen, metrics);
+    info.append(model, title, seen, metrics);
     card.append(photo, info);
     return card;
 }
@@ -219,7 +234,8 @@ function createAircraftCard(plane) {
 function renderGallery() {
     const query = searchInput.value.trim().toLowerCase();
     const filtered = planes.filter(plane =>
-        `${plane.callsign ?? ''} ${plane.hex ?? ''}`.toLowerCase().includes(query)
+        `${plane.callsign ?? ''} ${plane.hex ?? ''} ${plane.aircraftType ?? ''}`
+            .toLowerCase().includes(query)
     );
     document.querySelector('#gallery-count').textContent = `(${filtered.length})`;
     aircraftGrid.replaceChildren();

@@ -112,6 +112,7 @@ h2 { margin: 0; font-size: 19px; letter-spacing: -.025em; }
 .photo-credit { position: absolute; right: 7px; bottom: 7px; padding: 4px 6px; border-radius: 4px; background: #07121dcc; color: #d7e5eb; font-size: 8px; }
 .photo-credit:hover { color: var(--accent); }
 .aircraft-info { padding: 14px 15px 15px; }
+.aircraft-model { overflow: hidden; margin-bottom: 6px; color: var(--accent); font-size: 10px; font-weight: 600; letter-spacing: .04em; text-overflow: ellipsis; white-space: nowrap; }
 .aircraft-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .aircraft-title h3 { overflow: hidden; margin: 0; color: var(--text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .hex-code { padding: 4px 6px; border: 1px solid #ffffff12; border-radius: 4px; color: var(--muted); font: 9px 'DM Mono', monospace; }
