@@ -122,6 +122,16 @@ function createPlaceholder() {
     return placeholder;
 }
 
+function addPhotoLink(photoArea, url, label) {
+    const link = document.createElement('a');
+    link.className = 'photo-credit';
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = label;
+    photoArea.append(link);
+}
+
 function loadPhoto(card) {
     const hex = card.dataset.hex;
     const photoArea = card.querySelector('.aircraft-photo');
@@ -135,6 +145,7 @@ function loadPhoto(card) {
             photoArea.replaceChildren();
             if (!photo?.url) {
                 photoArea.append(createPlaceholder());
+                if (photo?.link) addPhotoLink(photoArea, photo.link, 'Zobacz w JetPhotos');
                 return;
             }
 
@@ -148,15 +159,7 @@ function loadPhoto(card) {
             }, { once: true });
             photoArea.append(image);
 
-            if (photo.link) {
-                const credit = document.createElement('a');
-                credit.className = 'photo-credit';
-                credit.href = photo.link;
-                credit.target = '_blank';
-                credit.rel = 'noopener noreferrer';
-                credit.textContent = 'PlaneSpotters';
-                photoArea.append(credit);
-            }
+            if (photo.link) addPhotoLink(photoArea, photo.link, `Źródło: ${photo.source ?? 'zdjęcie'}`);
         })
         .catch(() => {
             photoArea.replaceChildren(createPlaceholder());

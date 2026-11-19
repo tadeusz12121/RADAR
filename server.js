@@ -81,46 +81,80 @@ app.get('/api/aircraft-photo/:hex', async (req, res) => {
     const cached = aircraftPhotoCache.get(hex);
     if (cached && cached.expiresAt > Date.now()) {
         return res.status(cached.photo ? 200 : 404).json(
-            cached.photo ?? { error: 'Nie znaleziono zdjęcia samolotu' }
+            cached.photo ?? { error: 'Nie znaleziono danych samolotu' }
         );
     }
 
     try {
-        const response = await fetch(
-            `https://api.planespotters.net/pub/photos/hex/${hex}`,
-            { signal: AbortSignal.timeout(8000) }
+        const aircraftResponse = await fetch(
+            `https://hexdb.io/api/v2/aircraft/${hex}`,
+            {
+                headers: { Accept: 'application/json' },
+                signal: AbortSignal.timeout(8000)
+            }
         );
 
-        if (!response.ok) {
-            throw new Error(`PlaneSpotters zwrócił status ${response.status}`);
+        if (aircraftResponse.status === 404) {
+            aircraftPhotoCache.set(hex, {
+                photo: null,
+                expiresAt: Date.now() + 60 * 60 * 1000
+            });
+            return res.status(404).json({
+                error: 'Nie znaleziono rejestracji samolotu'
+            });
+        }
+        if (!aircraftResponse.ok) {
+            throw new Error(`HexDB zwrócił status ${aircraftResponse.status}`);
         }
 
-        const data = await response.json();
-        const photo = data.photos?.[0];
-        const result = photo
-            ? {
-                url: photo.thumbnail_large?.src ?? photo.thumbnail?.src,
-                link: photo.link
-            }
-            : null;
-
-        if (result?.url) {
+        const aircraft = await aircraftResponse.json();
+        const registration = aircraft.registration?.trim();
+        if (!registration || !/^[a-z0-9-]{2,10}$/i.test(registration)) {
             aircraftPhotoCache.set(hex, {
-                photo: result,
-                expiresAt: Date.now() + 6 * 60 * 60 * 1000
+                photo: null,
+                expiresAt: Date.now() + 60 * 60 * 1000
             });
-            return res.json(result);
+            return res.status(404).json({
+                error: 'Nie znaleziono rejestracji samolotu'
+            });
+        }
+
+        const jetPhotosUrl = new URL(
+            `/registration/${encodeURIComponent(registration)}`,
+            'https://www.jetphotos.com'
+        );
+        const imageUrl = aircraft.images?.thumbnail ?? aircraft.images?.full;
+        let photo = null;
+        if (imageUrl) {
+            const parsedImageUrl = new URL(imageUrl);
+            if (
+                parsedImageUrl.protocol !== 'https:' ||
+                parsedImageUrl.hostname !== 'hexdb.io'
+            ) {
+                throw new Error('HexDB zwrócił nieprawidłowy adres zdjęcia');
+            }
+            photo = {
+                url: parsedImageUrl.toString(),
+                link: `https://hexdb.io/api/v2/aircraft/${hex}`,
+                source: 'HexDB',
+                registration
+            };
+        } else {
+            photo = {
+                url: null,
+                link: jetPhotosUrl.toString(),
+                source: 'JetPhotos',
+                registration
+            };
         }
 
         aircraftPhotoCache.set(hex, {
-            photo: null,
-            expiresAt: Date.now() + 60 * 60 * 1000
+            photo,
+            expiresAt: Date.now() + (photo.url ? 6 : 1) * 60 * 60 * 1000
         });
-        return res.status(404).json({
-            error: 'Nie znaleziono zdjęcia samolotu'
-        });
+        return res.json(photo);
     } catch (err) {
-        console.error(`Błąd pobierania zdjęcia samolotu ${hex}:`, err);
+        console.error(`Błąd pobierania zdjęcia dla ${hex}:`, err);
         return res.status(502).json({
             error: 'Nie udało się pobrać zdjęcia samolotu'
         });
