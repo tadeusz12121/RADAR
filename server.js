@@ -12,15 +12,10 @@ app.use(express.static('public'));
 let i = 0;
 let aircrafts = [];
 let isReading = false;
+let databaseReady = false;
 let lastSuccessfulReadAt = null;
 const lastTrackSampleAt = new Map();
 const aircraftPhotoCache = new Map();
-
-// Łączenie z MongoDB
-mongoose.connect(url)
-    .then(() => console.log('Połączono z MongoDB'))
-    .catch(err => console.error('Błąd MongoDB:', err));
-
 
 // Sprawdzanie odległości od Mielca
 function isNearMielec(lat, lon) {
@@ -56,6 +51,65 @@ function isValidArchiveDate(date) {
     return !Number.isNaN(parsed.getTime()) &&
         parsed.toISOString().slice(0, 10) === date;
 }
+
+async function migrateLegacyMielecRecords() {
+    let lastId = null;
+    let migratedCount = 0;
+
+    while (true) {
+        const filter = { nearMielec: { $exists: false } };
+        if (lastId) filter._id = { $gt: lastId };
+        const planes = await DailyAircraft.find(filter)
+            .select('_id firstSeen lastSeen maxAltitude maxSpeed messages lastLatitude lastLongitude lastAltitude lastSpeed lastHeading verticalRate')
+            .sort({ _id: 1 })
+            .limit(500)
+            .lean();
+        if (!planes.length) break;
+
+        const operations = planes.map(plane => {
+            const localFields = { nearMielec: true };
+            for (const [source, target] of [
+                ['firstSeen', 'firstSeenMielec'],
+                ['lastSeen', 'lastSeenMielec'],
+                ['maxAltitude', 'maxAltitudeMielec'],
+                ['maxSpeed', 'maxSpeedMielec'],
+                ['messages', 'messagesMielec'],
+                ['lastLatitude', 'lastLatitudeMielec'],
+                ['lastLongitude', 'lastLongitudeMielec'],
+                ['lastAltitude', 'lastAltitudeMielec'],
+                ['lastSpeed', 'lastSpeedMielec'],
+                ['lastHeading', 'lastHeadingMielec'],
+                ['verticalRate', 'verticalRateMielec']
+            ]) {
+                if (plane[source] !== undefined) localFields[target] = plane[source];
+            }
+
+            return {
+                updateOne: {
+                    filter: { _id: plane._id, nearMielec: { $exists: false } },
+                    update: { $set: localFields }
+                }
+            };
+        });
+
+        const result = await DailyAircraft.bulkWrite(operations, { ordered: false });
+        migratedCount += result.modifiedCount;
+        lastId = planes.at(-1)._id;
+    }
+
+    if (migratedCount) {
+        console.log(`Zaktualizowano starsze wpisy Mielca: ${migratedCount}`);
+    }
+}
+
+// Łączenie z MongoDB i zachowanie dotychczasowych statystyk Mielca.
+mongoose.connect(url)
+    .then(async () => {
+        await migrateLegacyMielecRecords();
+        databaseReady = true;
+        console.log('Połączono z MongoDB');
+    })
+    .catch(err => console.error('Błąd przygotowania MongoDB:', err));
 
 app.get('/api/health', (req, res) => {
     const currentPlanes = aircrafts.aircraft ?? [];
@@ -116,6 +170,8 @@ app.get('/api/today/tracks', async (req, res) => {
             .select({
                 hex: 1,
                 callsign: 1,
+                registration: 1,
+                maxAltitude: 1,
                 'trackPoints.at': 1,
                 'trackPoints.lat': 1,
                 'trackPoints.lon': 1
@@ -135,12 +191,30 @@ app.get('/api/today', async (req, res) => {
         const today = getToday();
 
         const planes = await DailyAircraft.find({
-            date: today
+            date: today,
+            $or: [
+                { nearMielec: true },
+                { nearMielec: { $exists: false } }
+            ]
         })
-            .select('date hex callsign registration aircraftType category squawk emergency firstSeen lastSeen maxAltitude maxSpeed messages lastLatitude lastLongitude lastAltitude lastSpeed lastHeading verticalRate')
-            .sort({ firstSeen: 1 });
+            .select('date hex callsign registration aircraftType category squawk emergency firstSeen firstSeenMielec lastSeen lastSeenMielec maxAltitude maxAltitudeMielec maxSpeed maxSpeedMielec messages messagesMielec lastLatitude lastLatitudeMielec lastLongitude lastLongitudeMielec lastAltitude lastAltitudeMielec lastSpeed lastSpeedMielec lastHeading lastHeadingMielec verticalRate verticalRateMielec')
+            .sort({ firstSeenMielec: 1, firstSeen: 1 })
+            .lean();
 
-        res.json(planes);
+        res.json(planes.map(plane => ({
+            ...plane,
+            firstSeen: plane.firstSeenMielec ?? plane.firstSeen,
+            lastSeen: plane.lastSeenMielec ?? plane.lastSeen,
+            maxAltitude: plane.maxAltitudeMielec ?? plane.maxAltitude,
+            maxSpeed: plane.maxSpeedMielec ?? plane.maxSpeed,
+            messages: plane.messagesMielec ?? plane.messages,
+            lastLatitude: plane.lastLatitudeMielec ?? plane.lastLatitude,
+            lastLongitude: plane.lastLongitudeMielec ?? plane.lastLongitude,
+            lastAltitude: plane.lastAltitudeMielec ?? plane.lastAltitude,
+            lastSpeed: plane.lastSpeedMielec ?? plane.lastSpeed,
+            lastHeading: plane.lastHeadingMielec ?? plane.lastHeading,
+            verticalRate: plane.verticalRateMielec ?? plane.verticalRate
+        })));
 
     } catch (err) {
         console.error('Błąd pobierania dzisiejszych samolotów:', err);
@@ -245,7 +319,7 @@ app.get('/api/aircraft-photo/:hex', async (req, res) => {
 // Odczytywanie samolotów
 async function readplanes() {
 
-    if (isReading) return;
+    if (!databaseReady || isReading) return;
 
     isReading = true;
 
@@ -262,6 +336,11 @@ async function readplanes() {
         i++;
 
         const today = getToday();
+        const updates = [];
+        const sampleCutoff = Date.now() - 60_000;
+        for (const [hex, sampledAt] of lastTrackSampleAt) {
+            if (sampledAt < sampleCutoff) lastTrackSampleAt.delete(hex);
+        }
 
         for (const plane of aircrafts.aircraft ?? []) {
 
@@ -280,16 +359,21 @@ async function readplanes() {
                 plane.seen_pos > 60
             ) continue;
 
-            // Sprawdzamy, czy samolot jest w promieniu 20 km
-            if (!isNearMielec(plane.lat, plane.lon)) continue;
+            const nearMielec = isNearMielec(plane.lat, plane.lon);
+            const altitude = typeof plane.alt_baro === 'number'
+                ? plane.alt_baro
+                : typeof plane.alt_geom === 'number'
+                    ? plane.alt_geom
+                    : undefined;
 
-
-            console.log(
-                plane.hex,
-                plane.flight,
-                plane.lat,
-                plane.lon
-            );
+            if (nearMielec) {
+                console.log(
+                    plane.hex,
+                    plane.flight,
+                    plane.lat,
+                    plane.lon
+                );
+            }
 
 
             // Dane do zapisania
@@ -306,6 +390,15 @@ async function readplanes() {
                     firstSeen: now
                 }
             };
+            if (nearMielec) {
+                update.$set.nearMielec = true;
+                update.$min = { firstSeenMielec: now };
+                update.$max = { lastSeenMielec: now };
+                update.$set.lastLatitudeMielec = plane.lat;
+                update.$set.lastLongitudeMielec = plane.lon;
+            } else {
+                update.$setOnInsert.nearMielec = false;
+            }
 
             // Callsign
             if (plane.flight?.trim()) {
@@ -326,25 +419,32 @@ async function readplanes() {
             if (typeof plane.emergency === 'string') {
                 update.$set.emergency = plane.emergency;
             }
-            if (typeof plane.alt_baro === 'number') {
-                update.$set.lastAltitude = plane.alt_baro;
+            if (altitude !== undefined) {
+                update.$set.lastAltitude = altitude;
+                if (nearMielec) update.$set.lastAltitudeMielec = altitude;
             }
             if (typeof plane.gs === 'number') {
                 update.$set.lastSpeed = plane.gs;
+                if (nearMielec) update.$set.lastSpeedMielec = plane.gs;
             }
             if (typeof plane.track === 'number') {
                 update.$set.lastHeading = plane.track;
+                if (nearMielec) update.$set.lastHeadingMielec = plane.track;
             }
             if (typeof plane.baro_rate === 'number') {
                 update.$set.verticalRate = plane.baro_rate;
+                if (nearMielec) update.$set.verticalRateMielec = plane.baro_rate;
             }
 
             // Największa wysokość
-            if (typeof plane.alt_baro === 'number') {
+            if (altitude !== undefined) {
                 update.$max = {
                     ...update.$max,
-                    maxAltitude: plane.alt_baro
+                    maxAltitude: altitude
                 };
+                if (nearMielec) {
+                    update.$max.maxAltitudeMielec = altitude;
+                }
             }
 
             // Największa prędkość
@@ -353,6 +453,9 @@ async function readplanes() {
                     ...update.$max,
                     maxSpeed: plane.gs
                 };
+                if (nearMielec) {
+                    update.$max.maxSpeedMielec = plane.gs;
+                }
             }
 
             // Licznik odebranych wiadomości (maksymalna zaobserwowana wartość)
@@ -361,6 +464,9 @@ async function readplanes() {
                     ...update.$max,
                     messages: plane.messages
                 };
+                if (nearMielec) {
+                    update.$max.messagesMielec = plane.messages;
+                }
             }
 
             const lastSample = lastTrackSampleAt.get(plane.hex) ?? 0;
@@ -371,8 +477,8 @@ async function readplanes() {
                     lon: plane.lon,
                     data: plane
                 };
-                if (typeof plane.alt_baro === 'number') {
-                    point.altitude = plane.alt_baro;
+                if (altitude !== undefined) {
+                    point.altitude = altitude;
                 }
                 if (typeof plane.gs === 'number') {
                     point.speed = plane.gs;
@@ -393,19 +499,20 @@ async function readplanes() {
             }
 
 
-            // Zapis do MongoDB
-            await DailyAircraft.findOneAndUpdate(
-                {
-                    date: today,
-                    hex: plane.hex
-                },
-                update,
-                {
-                    upsert: true,
-                    new: true
+            updates.push({
+                updateOne: {
+                    filter: {
+                        date: today,
+                        hex: plane.hex
+                    },
+                    update,
+                    upsert: true
                 }
-            );
+            });
+        }
 
+        if (updates.length) {
+            await DailyAircraft.bulkWrite(updates, { ordered: false });
         }
 
         console.log('Odczyt nr:', i);

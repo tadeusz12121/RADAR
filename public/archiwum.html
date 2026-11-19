@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#09131d">
-    <meta name="description" content="Pełne archiwum dziennych obserwacji samolotów nad Mielcem.">
+    <meta name="description" content="Pełne archiwum dziennych obserwacji samolotów wykrytych przez odbiornik Mielec RADAR.">
     <title>Archiwum lotów — Mielec RADAR</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <link rel="stylesheet" href="/statystyki.css">
@@ -36,7 +36,7 @@
             <div>
                 <p class="eyebrow">MIELEC RADAR · PEŁNA HISTORIA</p>
                 <h1>Archiwum <span>lotów.</span></h1>
-                <p class="archive-description">Wybierz dzień, aby przejrzeć każdy zarejestrowany samolot, jego parametry, surowe dane ADS-B i zapisane punkty trasy.</p>
+                <p class="archive-description">Wybierz dzień, aby przejrzeć samoloty wykryte przez odbiornik — także poza Mielcem — ich parametry, surowe dane ADS-B i zapisane punkty trasy.</p>
             </div>
             <div class="archive-date-control">
                 <label for="archive-date">Dzień archiwum</label>
@@ -71,7 +71,7 @@
                 <div id="archive-map" aria-label="Mapa zapisanej trasy samolotu"></div>
                 <p id="track-message" class="track-message">Wybierz samolot, aby zobaczyć jego zapisaną trasę.</p>
             </div>
-            <p class="archive-note">Pozycje trasy są zapisywane orientacyjnie co 15 sekund. Starsze wpisy archiwum mogą nie zawierać śladów ani pełnych danych, ponieważ te informacje zaczynają gromadzić się po wdrożeniu nowego zapisu.</p>
+            <p class="archive-note">Pozycje samolotów z aktualną lokalizacją w zasięgu odbiornika są zapisywane orientacyjnie co 15 sekund. Starsze wpisy archiwum mogą nie zawierać śladów ani pełnych danych, ponieważ te informacje zaczynają gromadzić się po wdrożeniu nowego zapisu.</p>
         </section>
 
         <section class="archive-aircraft-section">

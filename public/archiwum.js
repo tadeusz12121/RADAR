@@ -40,6 +40,42 @@ function formatValue(value, unit) {
     return unit ? `${formatted} ${unit}` : formatted;
 }
 
+function latestAltitude(plane) {
+    const values = [
+        plane.lastAltitude,
+        plane.latestData?.alt_baro,
+        plane.latestData?.alt_geom,
+        plane.trackPoints?.at(-1)?.altitude
+    ];
+    return values.find(value => typeof value === 'number' && Number.isFinite(value));
+}
+
+function maximumAltitude(plane) {
+    const values = [
+        plane.maxAltitude,
+        plane.latestData?.alt_baro,
+        plane.latestData?.alt_geom,
+        plane.trackPoints?.map(point => point.altitude).filter(Number.isFinite)
+            .reduce((maximum, value) => Math.max(maximum, value), -Infinity)
+    ];
+    return values.find(value => typeof value === 'number' && Number.isFinite(value));
+}
+
+function latestSpeed(plane) {
+    const values = [plane.lastSpeed, plane.latestData?.gs, plane.trackPoints?.at(-1)?.speed];
+    return values.find(value => typeof value === 'number' && Number.isFinite(value));
+}
+
+function maximumSpeed(plane) {
+    const values = [
+        plane.maxSpeed,
+        plane.latestData?.gs,
+        plane.trackPoints?.map(point => point.speed).filter(Number.isFinite)
+            .reduce((maximum, value) => Math.max(maximum, value), -Infinity)
+    ];
+    return values.find(value => typeof value === 'number' && Number.isFinite(value));
+}
+
 function displayDate(date) {
     const parsed = new Date(`${date}T12:00:00+01:00`);
     return new Intl.DateTimeFormat('pl-PL', {
@@ -52,9 +88,9 @@ function displayDate(date) {
 }
 
 function setSummary(planes) {
-    const altitudes = planes.map(plane => plane.maxAltitude)
+    const altitudes = planes.map(maximumAltitude)
         .filter(value => Number.isFinite(value) && value > 0);
-    const speeds = planes.map(plane => plane.maxSpeed)
+    const speeds = planes.map(maximumSpeed)
         .filter(value => Number.isFinite(value) && value > 0);
     const pointCount = planes.reduce((total, plane) =>
         total + (Array.isArray(plane.trackPoints) ? plane.trackPoints.length : 0), 0);
@@ -107,20 +143,21 @@ function createAircraftCard(plane) {
     const title = document.createElement('div');
     title.className = 'archive-card-title';
     const heading = document.createElement('strong');
-    heading.textContent = plane.callsign || plane.registration || 'Samolot bez callsign';
+    heading.textContent = plane.callsign || plane.latestData?.flight?.trim() ||
+        plane.registration || plane.latestData?.r || 'Samolot bez callsign';
     const subheading = document.createElement('small');
     subheading.textContent = [
         plane.hex?.toUpperCase() ?? '—',
-        plane.registration ?? 'brak rejestracji',
-        plane.aircraftType ?? 'typ nieznany'
+        plane.registration ?? plane.latestData?.r ?? 'brak rejestracji',
+        plane.aircraftType ?? plane.latestData?.t ?? 'typ nieznany'
     ].join(' · ');
     title.append(heading, subheading);
 
     const meta = document.createElement('div');
     meta.className = 'archive-card-meta';
     for (const [label, value] of [
-        ['WYSOKOŚĆ MAKS.', formatValue(plane.maxAltitude, 'ft')],
-        ['PRĘDKOŚĆ MAKS.', formatValue(plane.maxSpeed, 'kt')]
+        ['WYSOKOŚĆ MAKS.', formatValue(maximumAltitude(plane), 'ft')],
+        ['PRĘDKOŚĆ MAKS.', formatValue(maximumSpeed(plane), 'kt')]
     ]) {
         const item = document.createElement('span');
         item.textContent = label;
@@ -144,23 +181,33 @@ function createAircraftCard(plane) {
     summary.textContent = 'Szczegóły samolotu';
     const grid = document.createElement('div');
     grid.className = 'archive-details-grid';
+    const latestData = plane.latestData ?? {};
+    const latitude = plane.lastLatitude ?? latestData.lat;
+    const longitude = plane.lastLongitude ?? latestData.lon;
     grid.append(
-        createDetail('Rejestracja', plane.registration),
-        createDetail('Typ statku powietrznego', plane.aircraftType),
-        createDetail('Kategoria ADS-B', plane.category),
-        createDetail('Kod transpondera', plane.squawk),
-        createDetail('Sytuacja awaryjna', plane.emergency),
+        createDetail('Rejestracja', plane.registration ?? latestData.r),
+        createDetail('Typ statku powietrznego', plane.aircraftType ?? latestData.t),
+        createDetail('Kategoria ADS-B', plane.category ?? latestData.category),
+        createDetail('Kod transpondera', plane.squawk ?? latestData.squawk),
+        createDetail('Sytuacja awaryjna', plane.emergency ?? latestData.emergency),
         createDetail('Pierwsze wykrycie', plane.firstSeen ? timeFormat.format(new Date(plane.firstSeen)) : null),
         createDetail('Ostatnie wykrycie', plane.lastSeen ? timeFormat.format(new Date(plane.lastSeen)) : null),
-        createDetail('Ostatnia wysokość', formatValue(plane.lastAltitude, 'ft')),
-        createDetail('Ostatnia prędkość', formatValue(plane.lastSpeed, 'kt')),
-        createDetail('Ostatnia pozycja', Number.isFinite(plane.lastLatitude) && Number.isFinite(plane.lastLongitude)
-            ? `${plane.lastLatitude.toFixed(5)}, ${plane.lastLongitude.toFixed(5)}`
+        createDetail('Ostatnia wysokość', formatValue(latestAltitude(plane), 'ft')),
+        createDetail('Ostatnia prędkość', formatValue(latestSpeed(plane), 'kt')),
+        createDetail('Ostatnia pozycja', Number.isFinite(latitude) && Number.isFinite(longitude)
+            ? `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`
             : '—'),
-        createDetail('Odebrane wiadomości', formatValue(plane.messages, '')),
+        createDetail('Odebrane wiadomości', formatValue(plane.messages ?? latestData.messages, '')),
         createDetail('Próbki trasy', numberFormat.format(plane.trackPoints?.length ?? 0))
     );
-    details.append(summary, grid, createRawDetails(plane));
+    details.append(summary, grid);
+    if (!plane.latestData && !plane.trackPoints?.length) {
+        const notice = document.createElement('p');
+        notice.className = 'archive-note';
+        notice.textContent = 'Starszy wpis archiwum nie zawiera pełnego zapisu ADS-B ani punktów trasy. Tych danych nie da się odtworzyć wstecz.';
+        details.append(notice);
+    }
+    details.append(createRawDetails(plane));
     card.append(header, details);
     return card;
 }
@@ -168,7 +215,8 @@ function createAircraftCard(plane) {
 function renderAircraftList() {
     const query = searchInput.value.trim().toLowerCase();
     const filtered = archivePlanes.filter(plane =>
-        [plane.callsign, plane.hex, plane.registration, plane.aircraftType]
+        [plane.callsign, plane.hex, plane.registration, plane.aircraftType,
+            plane.latestData?.flight, plane.latestData?.r, plane.latestData?.t]
             .some(value => String(value ?? '').toLowerCase().includes(query))
     );
     document.querySelector('#filtered-count').textContent = `(${filtered.length})`;

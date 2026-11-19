@@ -76,6 +76,15 @@ function formatMetric(value, unit) {
         : '—';
 }
 
+function getAltitude(plane) {
+    if (typeof plane.alt_baro === 'number' && Number.isFinite(plane.alt_baro)) {
+        return plane.alt_baro;
+    }
+    return typeof plane.alt_geom === 'number' && Number.isFinite(plane.alt_geom)
+        ? plane.alt_geom
+        : null;
+}
+
 function createPopup(plane) {
     const content = document.createElement('div');
     const title = document.createElement('div');
@@ -86,7 +95,7 @@ function createPopup(plane) {
     details.className = 'popup-detail';
     details.textContent = [
         `HEX ${plane.hex.toUpperCase()}`,
-        `Wysokość ${formatMetric(plane.alt_baro, 'ft')}`,
+        `Wysokość ${formatMetric(getAltitude(plane), 'ft')}`,
         `Prędkość ${formatMetric(plane.gs, 'kt')}`
     ].join(' · ');
 
@@ -111,16 +120,17 @@ function matchesFilters(plane) {
         `${plane.flight ?? ''} ${plane.hex ?? ''} ${plane.r ?? ''}`
             .toLowerCase()
             .includes(query);
+    const altitude = getAltitude(plane);
     const minimumAltitude = Number(altitudeFilter.value);
     const matchesAltitude = altitudeFilter.value === 'all' ||
-        (typeof plane.alt_baro === 'number' && plane.alt_baro >= minimumAltitude);
+        (altitude !== null && altitude >= minimumAltitude);
     return matchesText && matchesAltitude;
 }
 
 function renderPlaneList(planes) {
     const filtered = planes.filter(matchesFilters);
     const signature = filtered.map(plane =>
-        [plane.hex, plane.flight, plane.alt_baro, plane.gs].join(':')
+        [plane.hex, plane.flight, getAltitude(plane), plane.gs].join(':')
     ).join('|') + `#${planes.length}`;
 
     aircraftCount.textContent = String(planes.length);
@@ -165,7 +175,7 @@ function renderPlaneList(planes) {
 
         const altitude = document.createElement('span');
         altitude.className = 'row-altitude';
-        altitude.textContent = formatMetric(plane.alt_baro, 'ft');
+        altitude.textContent = formatMetric(getAltitude(plane), 'ft');
         button.append(icon, copy, altitude);
         button.addEventListener('click', () => {
             const marker = markers.get(plane.hex);
@@ -236,7 +246,8 @@ async function loadTrails() {
 
         for (const plane of data.planes) {
             const matchesText = !query ||
-                `${plane.callsign ?? ''} ${plane.hex ?? ''}`.toLowerCase().includes(query);
+                `${plane.callsign ?? ''} ${plane.registration ?? ''} ${plane.hex ?? ''}`
+                    .toLowerCase().includes(query);
             const matchesAltitude = minimumAltitude === 'all' ||
                 (typeof plane.maxAltitude === 'number' && plane.maxAltitude >= Number(minimumAltitude));
             if (!matchesText || !matchesAltitude) continue;
